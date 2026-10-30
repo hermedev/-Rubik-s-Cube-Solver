@@ -18,8 +18,8 @@ public class PivotRotation : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        readCube = FindObjectOfType<ReadCube>();
-        cubeState = FindObjectOfType<CubeState>();
+        readCube = FindAnyObjectByType<ReadCube>();
+        cubeState = FindAnyObjectByType<CubeState>();
     }
 
     // Update is called once per frame

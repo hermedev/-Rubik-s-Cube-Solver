@@ -25,7 +25,7 @@ public class CubeMap : MonoBehaviour
     }
     public void set()
     {
-        cubeState=FindObjectOfType<CubeState>();
+        cubeState=FindAnyObjectByType<CubeState>();
         updatemap(cubeState.front, Front);
         updatemap(cubeState.back, back);
         updatemap(cubeState.left, left);

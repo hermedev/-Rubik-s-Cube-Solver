@@ -25,13 +25,13 @@ public class ReadCube : MonoBehaviour
     {
         SetRayTransform();
         cubestate = GetComponent<CubeState>();
-        cubeMap = FindObjectOfType<CubeMap>();
+        cubeMap = FindAnyObjectByType<CubeMap>();
       
     }
     public void ReadState()
     {
-         cubestate= FindObjectOfType<CubeState>();
-        cubeMap= FindObjectOfType<CubeMap>();
+         cubestate= FindAnyObjectByType<CubeState>();
+        cubeMap= FindAnyObjectByType<CubeMap>();
         cubestate.up = ReadFace(upRays, tUp);
         cubestate.Down=ReadFace(downRays, tDown);
         cubestate.left=ReadFace(leftRays, tLeft);

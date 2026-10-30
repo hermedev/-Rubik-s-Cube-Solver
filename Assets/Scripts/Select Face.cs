@@ -10,8 +10,8 @@ public class SelectFace : MonoBehaviour
 
     private void Start()
     {
-        readCube=FindObjectOfType<ReadCube>();
-        cubeState = FindObjectOfType<CubeState>();
+        readCube=FindAnyObjectByType<ReadCube>();
+        cubeState = FindAnyObjectByType<CubeState>();
     }
     // Update is called once per frame
     void Update()
