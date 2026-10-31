@@ -1,109 +1,131 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using DG.Tweening;
 
+/// <summary>
+/// Handles rotating a single cube face pivot.
+///
+/// Input flow (via CubeInputReader events):
+///   Rotate(side) called          → subscribe to OnPrimaryDelta + OnPrimaryReleased
+///   OnPrimaryDelta fires         → SpinSide() (raw feel, no DOTween)
+///   OnPrimaryReleased fires      → unsubscribe, SnapToNearestAngle() (DOTween)
+///   DOTween OnComplete           → PutDown, ReadState, unlock input
+/// </summary>
 public class PivotRotation : MonoBehaviour
 {
+    // ── Fields ───────────────────────────────────────────────────────────────
     private List<GameObject> activeSide;
-    private Vector3 localForwords;
-    private Vector3 mouseRef;
-    private bool dragging = false;
-    private ReadCube readCube;
+    private bool             dragging = false;
+
+    private ReadCube  readCube;
     private CubeState cubeState;
-    private bool autorotating=false;
-    private float sensitivity = 0.4f;
-    private float speed = 300f;
+
+    private float   sensitivity = 0.4f;
     private Vector3 rotation;
-    private Quaternion targetQutenion;
-    // Start is called before the first frame update
+
+    private Tween snapTween;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
     void Start()
     {
-        readCube = FindAnyObjectByType<ReadCube>();
+        readCube  = FindAnyObjectByType<ReadCube>();
         cubeState = FindAnyObjectByType<CubeState>();
     }
 
-    // Update is called once per frame
-    void Update()
+    void OnDestroy()
     {
-        if (dragging)
-        {
-            SpinSide(activeSide);
-            if (Input.GetMouseButtonUp(0))
-            {
-                dragging = false;
-                RotateToRightAngle();
-            }
-                
-        }
-        if (autorotating)
-        {
-            AutoRotate();
-        }
-         
+        UnsubscribeFromInput();
+        snapTween?.Kill();
     }
-    private void SpinSide(List<GameObject>side)
-    {
-        rotation = Vector3.zero;
-        Vector3 mouseOffeset =( Input.mousePosition - mouseRef);
-    
-        if (side == cubeState.up)
-        {
-            rotation.y = (mouseOffeset.x + mouseOffeset.y) * sensitivity * 1;
-        }
-        if (side == cubeState.Down)
-        {
-            rotation.y = (mouseOffeset.x + mouseOffeset.y) * sensitivity * -1;
-        }
-        if (side == cubeState.left)
-        {
-            rotation.z = (mouseOffeset.x + mouseOffeset.y) * sensitivity * 1;
-        }
-        if (side == cubeState.right)
-        {
-            rotation.z = (mouseOffeset.x + mouseOffeset.y) * sensitivity * -1;
-        }
-        if (side == cubeState.front)
-        {
-            rotation.x = (mouseOffeset.x + mouseOffeset.y) * sensitivity * -1;
-        }
-        if (side == cubeState.back)
-        {
-            rotation.x = (mouseOffeset.x + mouseOffeset.y) * sensitivity * 1;
-        }
-        transform.Rotate(rotation, Space.Self);
-        mouseRef = Input.mousePosition;
-    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /// <summary>Called by CubeState.PickUp() — begins face-drag session.</summary>
     public void Rotate(List<GameObject> side)
     {
+        if (CubeInput.IsLocked) return;
+
         activeSide = side;
-        mouseRef=Input.mousePosition;
-        dragging = true;
-
-        localForwords = Vector3.zero - side[4].transform.parent.transform.localPosition;
+        dragging   = true;
+        SubscribeToInput();
     }
-    public void RotateToRightAngle()
+
+    // ── Input Subscriptions ───────────────────────────────────────────────────
+
+    private void SubscribeToInput()
     {
-        Vector3 vec = transform.localEulerAngles;
-        vec.x=Mathf.Round(vec.x/90)*90;
-        vec.y = Mathf.Round(vec.y / 90) * 90;
-        vec.z = Mathf.Round(vec.z / 90) * 90;
-
-        targetQutenion.eulerAngles=vec;
-        autorotating=true;
+        if (CubeInputReader.Instance == null) return;
+        CubeInputReader.Instance.OnPrimaryDelta    += HandleDelta;
+        CubeInputReader.Instance.OnPrimaryReleased += HandleReleased;
     }
-    private void AutoRotate()
-    {   
-        dragging=false;
-        var step = speed * Time.deltaTime;
-        transform.localRotation=Quaternion.RotateTowards(transform.localRotation,targetQutenion,step);
 
-        if (Quaternion.Angle(transform.localRotation, targetQutenion) <= 1)
-        {
-            transform.localRotation = targetQutenion;
-            cubeState.PutDown(activeSide,transform.parent);
-            readCube.ReadState();
-            autorotating = false;
-            dragging = false;
-        }
+    private void UnsubscribeFromInput()
+    {
+        if (CubeInputReader.Instance == null) return;
+        CubeInputReader.Instance.OnPrimaryDelta    -= HandleDelta;
+        CubeInputReader.Instance.OnPrimaryReleased -= HandleReleased;
+    }
+
+    // ── Event Handlers ────────────────────────────────────────────────────────
+
+    private void HandleDelta(Vector2 delta)
+    {
+        if (!dragging) return;
+        SpinSide(activeSide, delta);
+    }
+
+    private void HandleReleased()
+    {
+        if (!dragging) return;
+        dragging = false;
+        UnsubscribeFromInput();
+        SnapToNearestAngle();
+    }
+
+    // ── Spin (raw, direct — no DOTween) ──────────────────────────────────────
+
+    /// <summary>
+    /// Maps input delta directly to pivot rotation while the player drags.
+    /// DOTween is only used for the release snap — drag stays raw and responsive.
+    /// </summary>
+    private void SpinSide(List<GameObject> side, Vector2 delta)
+    {
+        rotation = Vector3.zero;
+
+        if      (side == cubeState.up)    rotation.y = (delta.x + delta.y) * sensitivity *  1;
+        else if (side == cubeState.Down)  rotation.y = (delta.x + delta.y) * sensitivity * -1;
+        else if (side == cubeState.left)  rotation.z = (delta.x + delta.y) * sensitivity *  1;
+        else if (side == cubeState.right) rotation.z = (delta.x + delta.y) * sensitivity * -1;
+        else if (side == cubeState.front) rotation.x = (delta.x + delta.y) * sensitivity * -1;
+        else if (side == cubeState.back)  rotation.x = (delta.x + delta.y) * sensitivity *  1;
+
+        transform.Rotate(rotation, Space.Self);
+    }
+
+    // ── Snap (DOTween) ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tweens the pivot to the nearest 90° after the player releases.
+    /// Uses Ease.OutCubic for a fast-start / smooth-land feel.
+    /// </summary>
+    public void SnapToNearestAngle()
+    {
+        Vector3 snapped = transform.localEulerAngles;
+        snapped.x = Mathf.Round(snapped.x / 90f) * 90f;
+        snapped.y = Mathf.Round(snapped.y / 90f) * 90f;
+        snapped.z = Mathf.Round(snapped.z / 90f) * 90f;
+
+        CubeInput.IsLocked = true;
+
+        snapTween?.Kill();
+        snapTween = transform
+            .DOLocalRotate(snapped, 0.25f, RotateMode.Fast)
+            .SetEase(Ease.OutCubic)
+            .OnComplete(() =>
+            {
+                cubeState.PutDown(activeSide, transform.parent);
+                readCube.ReadState();
+                CubeInput.IsLocked = false;
+            });
     }
 }
