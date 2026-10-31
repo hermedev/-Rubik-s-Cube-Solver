@@ -76,11 +76,10 @@ public class CubeInputReader : MonoBehaviour
     private InputAction _secondaryDelta;    // frame delta of secondary pointer
 
     // ── Swipe state ──────────────────────────────────────────────────────────
-    /// <summary>Total accumulated delta during the current secondary press.</summary>
-    private Vector2 _cumulativeSecondaryDelta;
+    private Vector2 _secondaryStartPos;
 
-    /// <summary>Minimum total movement (px) to count as a swipe rather than a tap-drag-release.</summary>
-    private const float SwipeThreshold = 100f;
+    /// <summary>Minimum screen drag distance (px) to register as a swipe rather than a static click.</summary>
+    private const float SwipeThreshold = 20f;
 
     /// <summary>Scales secondary delta before broadcasting — matches the old 0.1f feel.</summary>
     private const float OrbitSensitivity = 0.1f;
@@ -135,13 +134,20 @@ public class CubeInputReader : MonoBehaviour
         _secondaryContact.AddBinding("<Mouse>/rightButton");
         _secondaryContact.AddBinding("<Touchscreen>/touch1/press");
 
-        _secondaryContact.started  += _ => _cumulativeSecondaryDelta = Vector2.zero;
+        _secondaryContact.started += _ =>
+        {
+            _secondaryStartPos = _primaryPosition.ReadValue<Vector2>();
+        };
+
         _secondaryContact.canceled += _ =>
         {
-            // Classify as swipe if total movement exceeds threshold
-            Vector2 swipeDir = _cumulativeSecondaryDelta.magnitude > SwipeThreshold
-                ? _cumulativeSecondaryDelta.normalized
+            Vector2 endPos = _primaryPosition.ReadValue<Vector2>();
+            Vector2 diff = endPos - _secondaryStartPos;
+
+            Vector2 swipeDir = diff.magnitude >= SwipeThreshold
+                ? diff.normalized
                 : Vector2.zero;
+
             OnSecondaryReleased?.Invoke(swipeDir);
         };
 
@@ -189,7 +195,6 @@ public class CubeInputReader : MonoBehaviour
             Vector2 d = _secondaryDelta.ReadValue<Vector2>();
             if (d.sqrMagnitude > 0.01f)
             {
-                _cumulativeSecondaryDelta += d;
                 OnSecondaryDelta?.Invoke(d * OrbitSensitivity);
             }
         }

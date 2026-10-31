@@ -2,17 +2,12 @@ using UnityEngine;
 using DG.Tweening;
 
 /// <summary>
-/// Controls whole-cube view rotation — orbit and 90° swipe steps.
+/// Controls whole-cube view rotation — orbit and 90° steps along all 3 axes (X, Y, Z).
 ///
-/// Input flow (via CubeInputReader events):
-///   OnSecondaryDelta   → orbit cube directly (raw feel, no DOTween)
-///   OnSecondaryReleased:
-///     swipeDir != zero → rotate target 90°, DOTween visual to match
-///     swipeDir == zero → DOTween visual back to target
-///
-/// Bug fixes vs previous version:
-///   • No double-tween on release (single event path, not two parallel checks)
-///   • No Quaternion != infinite restart loop (replaced with DOTween.IsTweening check)
+/// In angled/isometric camera view, 6 swipe directions correspond to 3 rotation axes:
+///   1. Left / Right         -> Rotate around Y axis (+90° / -90°)
+///   2. Up-Left / Down-Right  -> Rotate around X axis (+90° / -90°)
+///   3. Down-Left / Up-Right  -> Rotate around Z axis (+90° / -90°)
 /// </summary>
 public class RotateCube : MonoBehaviour
 {
@@ -27,7 +22,7 @@ public class RotateCube : MonoBehaviour
     private Tween snapTween;
     private Tween swipeTween;
 
-    private const float SnapDuration  = 0.40f;  // drag-release snap
+    private const float SnapDuration  = 0.35f;  // drag-release snap
     private const float SwipeDuration = 0.35f;  // 90° swipe step
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -47,10 +42,10 @@ public class RotateCube : MonoBehaviour
         swipeTween?.Kill();
     }
 
-    // ── Orbit (raw, direct) ───────────────────────────────────────────────────
+    // ── Orbit (raw, direct drag) ──────────────────────────────────────────────
 
     /// <summary>
-    /// Directly applies the already-scaled delta from CubeInputReader.
+    /// Directly applies the delta from CubeInputReader while dragging right-mouse.
     /// Kills any running snap tween so drag feels immediate.
     /// </summary>
     private void HandleOrbit(Vector2 scaledDelta)
@@ -58,7 +53,6 @@ public class RotateCube : MonoBehaviour
         snapTween?.Kill();
         swipeTween?.Kill();
 
-        // Apply orbit: y-axis for horizontal delta, x-axis for vertical
         Quaternion rot = Quaternion.Euler(scaledDelta.y, -scaledDelta.x, 0);
         transform.rotation = rot * transform.rotation;
     }
@@ -77,30 +71,65 @@ public class RotateCube : MonoBehaviour
         }
         else
         {
-            // Just a drag-release — snap visual back to current target
             TweenSnapToTarget();
         }
     }
 
-    /// <summary>Rotates target 90° based on swipe direction, then tweens visual to match.</summary>
-    private void ApplySwipeStep(Vector2 dir)
+    /// <summary>
+    /// Rotates target 90° on all 3 main axes (and their opposites) based on swipe angle:
+    ///   - Left / Right        -> Y-axis
+    ///   - Up-Left / Down-Right -> X-axis
+    ///   - Down-Left / Up-Right -> Z-axis
+    /// </summary>
+    private void ApplySwipeStep(Vector2 swipe)
     {
-        Vector3 axis  = Vector3.zero;
-        float   angle = 90f;
+        Vector3 axis = Vector3.zero;
+        float angle = 90f;
 
-        if      (IsLeft(dir))      { axis = Vector3.up;      angle =  90f; }
-        else if (IsRight(dir))     { axis = Vector3.up;      angle = -90f; }
-        else if (IsUpLeft(dir))    { axis = Vector3.right;   angle =  90f; }
-        else if (IsUpRight(dir))   { axis = Vector3.forward; angle = -90f; }
-        else if (IsDownLeft(dir))  { axis = Vector3.forward; angle =  90f; }
-        else if (IsDownRight(dir)) { axis = Vector3.right;   angle = -90f; }
+        // 1. Horizontal swipes -> Y-Axis rotation
+        if (IsLeft(swipe))
+        {
+            axis = Vector3.up;
+            angle = 90f;
+        }
+        else if (IsRight(swipe))
+        {
+            axis = Vector3.up;
+            angle = -90f;
+        }
+        // 2. Diagonal 1 (Up-Left / Down-Right) -> X-Axis rotation
+        else if (IsUpLeft(swipe))
+        {
+            axis = Vector3.right;
+            angle = 90f;
+        }
+        else if (IsDownRight(swipe))
+        {
+            axis = Vector3.right;
+            angle = -90f;
+        }
+        // 3. Diagonal 2 (Up-Right / Down-Left) -> Z-Axis rotation
+        else if (IsUpRight(swipe))
+        {
+            axis = Vector3.forward;
+            angle = -90f;
+        }
+        else if (IsDownLeft(swipe))
+        {
+            axis = Vector3.forward;
+            angle = 90f;
+        }
 
-        if (axis == Vector3.zero) { TweenSnapToTarget(); return; }
+        if (axis == Vector3.zero)
+        {
+            TweenSnapToTarget();
+            return;
+        }
 
         // Step the logical target instantly
         target.transform.Rotate(axis, angle, Space.World);
 
-        // Animate visual with a satisfying slight overshoot (OutBack)
+        // Animate visual cube with DOTween
         snapTween?.Kill();
         swipeTween?.Kill();
         swipeTween = transform
@@ -111,11 +140,9 @@ public class RotateCube : MonoBehaviour
 
     /// <summary>
     /// Smoothly rotates the visual cube to match target.transform.rotation.
-    /// Bug fix: only starts if not already tweening (was: Quaternion != infinite loop).
     /// </summary>
     private void TweenSnapToTarget()
     {
-        // Guard: don't restart if already tweening toward target (fixes infinite loop bug)
         if (DOTween.IsTweening(transform)) return;
         if (Quaternion.Angle(transform.rotation, target.transform.rotation) < 0.5f) return;
 
@@ -126,12 +153,11 @@ public class RotateCube : MonoBehaviour
             .OnComplete(() => snapTween = null);
     }
 
-    // ── Swipe Direction Helpers ───────────────────────────────────────────────
-
-    private bool IsLeft(Vector2 s)      => s.x < 0  && s.y > -0.5f && s.y < 0.5f;
-    private bool IsRight(Vector2 s)     => s.x > 0  && s.y > -0.5f && s.y < 0.5f;
-    private bool IsUpLeft(Vector2 s)    => s.y > 0  && s.x <= 0f;
-    private bool IsUpRight(Vector2 s)   => s.y > 0  && s.x > 0f;
-    private bool IsDownLeft(Vector2 s)  => s.y < 0  && s.x <= 0f;
-    private bool IsDownRight(Vector2 s) => s.y < 0  && s.x > 0f;
+    // ── Direction predicates for the 6 isometric swipe angles ────────────────
+    private bool IsLeft(Vector2 s)      => s.x < 0 && s.y > -0.5f && s.y < 0.5f;
+    private bool IsRight(Vector2 s)     => s.x > 0 && s.y > -0.5f && s.y < 0.5f;
+    private bool IsUpLeft(Vector2 s)    => s.y > 0 && s.x < 0f;
+    private bool IsUpRight(Vector2 s)   => s.y > 0 && s.x >= 0f;
+    private bool IsDownLeft(Vector2 s)  => s.y < 0 && s.x < 0f;
+    private bool IsDownRight(Vector2 s) => s.y < 0 && s.x >= 0f;
 }
